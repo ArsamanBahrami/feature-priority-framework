@@ -222,6 +222,12 @@ def serialize_request_sources(sources):
     return json.dumps(cleaned)
 
 
+def db_bool(value):
+    if is_postgres():
+        return bool(value)
+    return 1 if value else 0
+
+
 def get_connection():
     if DATABASE_URL:
         if psycopg is None:
@@ -312,7 +318,7 @@ def seed_features_if_needed(conn):
                 feature["urgency_reason"],
                 feature["notes"],
                 feature["dependencies"],
-                feature["quick_win"],
+                db_bool(feature["quick_win"]),
                 feature["customer_impact"],
                 feature["strategic_fit"],
                 feature["urgency"],
@@ -464,7 +470,7 @@ def validate_feature_payload(payload):
             raise ValueError(f"{field.replace('_', ' ').title()} must be between 1 and 5.")
         cleaned[field] = value
 
-    cleaned["quick_win"] = 1 if payload.get("quick_win") else 0
+    cleaned["quick_win"] = db_bool(payload.get("quick_win"))
     return cleaned
 
 
