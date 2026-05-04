@@ -25,6 +25,7 @@ SESSION_TTL_DAYS = 14
 HOST = os.environ.get("APP_HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT") or os.environ.get("APP_PORT", "8000"))
 SECRET_PATH = BASE_DIR / ".app_secret"
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
 
 SQLITE_FEATURE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS features (
@@ -700,8 +701,10 @@ class FeaturePriorityHandler(SimpleHTTPRequestHandler):
         jar[SESSION_COOKIE] = token
         jar[SESSION_COOKIE]["path"] = "/"
         jar[SESSION_COOKIE]["httponly"] = True
-        jar[SESSION_COOKIE]["samesite"] = "Strict"
+        jar[SESSION_COOKIE]["samesite"] = "Lax"
         jar[SESSION_COOKIE]["max-age"] = SESSION_TTL_DAYS * 24 * 60 * 60
+        if COOKIE_SECURE or self.headers.get("X-Forwarded-Proto", "").lower() == "https":
+            jar[SESSION_COOKIE]["secure"] = True
         return jar.output(header="").strip()
 
     def parse_body(self):
