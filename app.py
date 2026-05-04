@@ -229,6 +229,18 @@ def db_bool(value):
     return 1 if value else 0
 
 
+def score_order_sql():
+    if is_postgres():
+        quick_win_term = "CASE WHEN quick_win THEN 2 ELSE 0 END"
+    else:
+        quick_win_term = "CASE quick_win WHEN 1 THEN 2 ELSE 0 END"
+
+    return f"""
+        ((customer_impact * 3) + (strategic_fit * 2) + (urgency * 2) + confidence
+        - (effort * 2) - dependency_risk + ({quick_win_term}))
+    """
+
+
 def get_connection():
     if DATABASE_URL:
         if psycopg is None:
@@ -388,8 +400,10 @@ def list_features():
             SELECT *
             FROM features
             ORDER BY
-              ((customer_impact * 3) + (strategic_fit * 2) + (urgency * 2) + confidence
-              - (effort * 2) - dependency_risk + (CASE quick_win WHEN 1 THEN 2 ELSE 0 END)) DESC,
+              """
+            + score_order_sql()
+            + """
+              DESC,
               updated_at DESC
             """
         )
