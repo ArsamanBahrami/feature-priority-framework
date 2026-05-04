@@ -1,0 +1,6 @@
+.app_secret
+feature_priority.db
+__pycache__/
+.DS_Store
+.env
+.env.*

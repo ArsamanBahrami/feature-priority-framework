@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Feature Priority Framework</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section id="login-view" class="auth-shell hidden">
+        <article class="auth-card panel">
+          <p class="eyebrow">Internal Access</p>
+          <h1>Feature Priority Framework</h1>
+          <p class="lede">
+            Sign in to submit, score, and manage feature priorities with your team.
+          </p>
+          <form id="login-form" class="form auth-form">
+            <label>
+              Email
+              <input name="email" type="email" autocomplete="username" required />
+            </label>
+            <label>
+              Password
+              <input
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                required
+              />
+            </label>
+            <button type="submit">Sign In</button>
+          </form>
+          <div id="login-feedback" class="feedback hidden"></div>
+        </article>
+      </section>
+
+      <section id="app-view" class="hidden">
+        <header class="workspace-top">
+          <div class="brand-lockup">
+            <p class="breadcrumb">Homepage / Feature Priority Framework</p>
+            <h1>Feature Priority Framework</h1>
+          </div>
+          <div class="workspace-user">
+            <div class="user-summary">
+              <strong id="user-name"></strong>
+              <span id="user-role" class="pill subtle-pill"></span>
+            </div>
+            <button id="logout-button" class="secondary" type="button">Sign out</button>
+          </div>
+        </header>
+
+        <nav class="workspace-nav">
+          <button class="nav-tab active" type="button" data-view="database">Features</button>
+          <button class="nav-tab" type="button" data-view="users">Team Access</button>
+        </nav>
+
+        <section id="database-view" class="workspace-view">
+          <article class="page-card">
+            <div class="page-banner"></div>
+            <div class="page-body">
+              <div class="page-header">
+                <div class="page-icon">🏗</div>
+                <div>
+                  <h2 class="page-title">Feature Priority Framework</h2>
+                  <p class="page-meta">
+                    A shared internal database for collecting feature ideas, scoring them
+                    consistently, and deciding what should be worked on next.
+                  </p>
+                </div>
+              </div>
+
+              <div class="note-card">
+                <p><strong>About the framework:</strong> Score each feature across the key dimensions to generate a shared priority score.</p>
+                <p><strong>New here?</strong> Add a feature with the <strong>New</strong> button below, fill in the scoring inputs, and use the database views to review what rises to the top.</p>
+              </div>
+            </div>
+          </article>
+
+          <section class="database-shell">
+            <div class="database-topbar">
+              <div class="view-tabs">
+                <button class="view-tab active" type="button" data-db-view="all">All Features</button>
+                <button class="view-tab" type="button" data-db-view="priority-dashboard">Priority Dashboard</button>
+                <button class="view-tab" type="button" data-db-view="quick-wins">Quick Wins</button>
+                <button class="view-tab" type="button" data-db-view="by-status">By Status</button>
+              </div>
+              <button id="new-feature-button" class="new-button" type="button" aria-label="Add feature">
+                New
+              </button>
+            </div>
+
+            <div class="database-toolbar">
+              <div class="toolbar-left">
+                <div class="table-title">Projects Database</div>
+                <div class="stats inline-stats" id="stats"></div>
+              </div>
+              <div class="filters">
+                <label>
+                  Status
+                  <select id="filter-status">
+                    <option value="">All</option>
+                  </select>
+                </label>
+                <label>
+                  Product Area
+                  <select id="filter-area">
+                    <option value="">All</option>
+                  </select>
+                </label>
+                <label>
+                  Source
+                  <select id="filter-source">
+                    <option value="">All</option>
+                  </select>
+                </label>
+                <label class="checkbox top-align">
+                  <input id="filter-quick-win" type="checkbox" />
+                  Quick wins only
+                </label>
+              </div>
+            </div>
+
+            <div id="feedback" class="feedback hidden"></div>
+
+            <div class="table-wrap notion-table-wrap">
+              <table class="database-table">
+                <thead>
+                  <tr>
+                    <th>Feature</th>
+                    <th>Description</th>
+                    <th>Status</th>
+                    <th>Source</th>
+                    <th>Area</th>
+                    <th>Effort</th>
+                    <th>Urgency</th>
+                    <th>Quick Win</th>
+                    <th>Priority Score</th>
+                    <th>Updated</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="feature-table"></tbody>
+              </table>
+            </div>
+
+            <button id="new-feature-inline" class="new-row-button" type="button">
+              + New feature
+            </button>
+          </section>
+        </section>
+
+        <section id="users-view" class="workspace-view hidden">
+          <section id="user-admin-panel" class="panel hidden">
+            <div class="panel-header">
+              <div>
+                <p class="breadcrumb">Feature Priority Framework / Team Access</p>
+                <h2>Team Access</h2>
+                <p>Manage who can view, edit, and administer the framework.</p>
+              </div>
+            </div>
+
+            <div class="admin-grid">
+              <form id="user-form" class="form">
+                <label>
+                  Full Name
+                  <input name="name" type="text" required />
+                </label>
+                <label>
+                  Email
+                  <input name="email" type="email" required />
+                </label>
+                <div class="triple-grid">
+                  <label>
+                    Role
+                    <select name="role">
+                      <option>viewer</option>
+                      <option>editor</option>
+                      <option>admin</option>
+                    </select>
+                  </label>
+                  <label class="wide-field">
+                    Temporary Password
+                    <input name="password" type="text" minlength="8" required />
+                  </label>
+                </div>
+                <button type="submit">Create User</button>
+              </form>
+
+              <div>
+                <div id="user-feedback" class="feedback hidden"></div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="user-table"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="user-readonly-panel" class="panel hidden">
+            <h2>Team Access</h2>
+            <p class="page-meta">
+              Only admins can manage users. Your current role lets you use the framework but not
+              change account access.
+            </p>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <div id="feature-modal" class="modal hidden" aria-hidden="true">
+      <div id="modal-backdrop" class="modal-backdrop"></div>
+      <section class="modal-card">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Feature Entry</p>
+            <h2 id="form-title">New Feature</h2>
+            <p>Capture the feature, its rationale, and how it should be scored.</p>
+          </div>
+          <div class="button-row">
+            <button id="cancel-edit" class="secondary hidden" type="button">Cancel edit</button>
+            <button id="close-modal" class="secondary" type="button">Close</button>
+          </div>
+        </div>
+
+        <form id="feature-form" class="form">
+          <input name="id" type="hidden" />
+          <label>
+            Title
+            <input name="title" type="text" required />
+          </label>
+          <label>
+            Product Area
+            <input name="productArea" type="text" placeholder="User accounts" required />
+          </label>
+
+          <div class="triple-grid">
+            <label>
+              Status
+              <select name="status">
+                <option>Idea</option>
+                <option>Triage</option>
+                <option>Scored</option>
+                <option>Planned</option>
+                <option>In progress</option>
+                <option>Shipped</option>
+                <option>Rejected</option>
+              </select>
+            </label>
+            <label>
+              Team Owner
+              <input name="teamOwner" type="text" placeholder="Product" />
+            </label>
+            <label>
+              Submitted By
+              <input name="submittedBy" type="text" placeholder="Arsaman" />
+            </label>
+          </div>
+
+          <fieldset class="source-group">
+            <legend>Sources</legend>
+            <div class="source-options">
+              <label class="source-chip">
+                <input type="checkbox" name="sources" value="Customer request" />
+                <span>Customer request</span>
+              </label>
+              <label class="source-chip">
+                <input type="checkbox" name="sources" value="Internal request" />
+                <span>Internal request</span>
+              </label>
+              <label class="source-chip">
+                <input type="checkbox" name="sources" value="Sales" />
+                <span>Sales</span>
+              </label>
+              <label class="source-chip">
+                <input type="checkbox" name="sources" value="Support" />
+                <span>Support</span>
+              </label>
+              <label class="source-chip">
+                <input type="checkbox" name="sources" value="Strategy" />
+                <span>Strategy</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <label>
+            Problem Statement
+            <textarea name="problem" rows="4" required></textarea>
+          </label>
+
+          <div class="score-grid">
+            <label>
+              Customer Impact
+              <input name="customerImpact" type="number" min="1" max="5" value="3" required />
+            </label>
+            <label>
+              Strategic Fit
+              <input name="strategicFit" type="number" min="1" max="5" value="3" required />
+            </label>
+            <label>
+              Urgency
+              <input name="urgency" type="number" min="1" max="5" value="3" required />
+            </label>
+            <label>
+              Confidence
+              <input name="confidence" type="number" min="1" max="5" value="3" required />
+            </label>
+            <label>
+              Effort
+              <input name="effort" type="number" min="1" max="5" value="3" required />
+            </label>
+            <label>
+              Dependency Risk
+              <input name="dependencyRisk" type="number" min="1" max="5" value="3" required />
+            </label>
+          </div>
+
+          <div class="triple-grid">
+            <label>
+              Dependencies
+              <input name="dependencies" type="text" placeholder="API team, migration work" />
+            </label>
+            <label>
+              Urgency Reason
+              <input name="urgencyReason" type="text" placeholder="Why now?" />
+            </label>
+            <label class="checkbox aligned-checkbox">
+              <input name="quickWin" type="checkbox" />
+              Quick win
+            </label>
+          </div>
+
+          <label>
+            Notes
+            <textarea
+              name="notes"
+              rows="3"
+              placeholder="Extra context or scoring notes"
+            ></textarea>
+          </label>
+
+          <div class="button-row modal-actions">
+            <button type="submit" id="submit-button">Add Feature</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

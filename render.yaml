@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: feature-priority-framework
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: APP_SECRET
+        generateValue: true
+      - key: APP_ADMIN_EMAIL
+        sync: false
+      - key: APP_ADMIN_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        sync: false
