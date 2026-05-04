@@ -405,18 +405,40 @@ async function loadUsers() {
 async function loadCurrentUser() {
   try {
     state.currentUser = await api("/api/me", { headers: {} });
-    userName.textContent = state.currentUser.name;
-    userRole.textContent = state.currentUser.role;
-    userAdminPanel.classList.toggle("hidden", !isAdmin());
-    userReadonlyPanel.classList.toggle("hidden", isAdmin());
-    setEditingEnabled(canEdit());
-    setAuthView(true);
-    setActiveView("database");
-    await loadFeatures();
-    await loadUsers();
   } catch {
     state.currentUser = null;
     setAuthView(false);
+    return;
+  }
+
+  userName.textContent = state.currentUser.name;
+  userRole.textContent = state.currentUser.role;
+  userAdminPanel.classList.toggle("hidden", !isAdmin());
+  userReadonlyPanel.classList.toggle("hidden", isAdmin());
+  setEditingEnabled(canEdit());
+  setAuthView(true);
+  setActiveView("database");
+
+  try {
+    await loadFeatures();
+  } catch (error) {
+    showMessage(
+      feedback,
+      error.message || "Logged in, but feature data could not be loaded.",
+      true
+    );
+  }
+
+  try {
+    await loadUsers();
+  } catch (error) {
+    if (isAdmin()) {
+      showMessage(
+        userFeedback,
+        error.message || "Logged in, but team access data could not be loaded.",
+        true
+      );
+    }
   }
 }
 
