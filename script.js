@@ -20,6 +20,7 @@ const usersView = document.getElementById("users-view");
 const navTabs = document.querySelectorAll(".nav-tab");
 const loginForm = document.getElementById("login-form");
 const loginFeedback = document.getElementById("login-feedback");
+const microsoftLoginButton = document.getElementById("microsoft-login-button");
 const logoutButton = document.getElementById("logout-button");
 const userName = document.getElementById("user-name");
 const userRole = document.getElementById("user-role");
@@ -442,6 +443,33 @@ async function loadCurrentUser() {
   }
 }
 
+function readAuthError() {
+  const url = new URL(window.location.href);
+  const authError = url.searchParams.get("authError");
+  if (!authError) return;
+
+  const messages = {
+    invalid_state: "Microsoft sign-in could not be verified. Please try again.",
+    access_denied: "Microsoft sign-in was cancelled.",
+    no_email: "Your Microsoft account did not provide an email address.",
+    domain_not_allowed: "Your Microsoft account domain is not allowed.",
+    not_provisioned: "Your Microsoft account is not provisioned for access.",
+  };
+
+  showMessage(loginFeedback, messages[authError] || "Microsoft sign-in failed.", true);
+  url.searchParams.delete("authError");
+  window.history.replaceState({}, "", url.toString());
+}
+
+async function loadAuthConfig() {
+  try {
+    const config = await api("/api/auth/config", { headers: {} });
+    microsoftLoginButton.classList.toggle("hidden", !config.microsoftEnabled);
+  } catch {
+    microsoftLoginButton.classList.add("hidden");
+  }
+}
+
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearMessage(loginFeedback);
@@ -470,6 +498,11 @@ logoutButton.addEventListener("click", async () => {
   resetFeatureForm();
   closeFeatureModal();
   setAuthView(false);
+});
+
+microsoftLoginButton.addEventListener("click", () => {
+  const callbackURL = window.location.pathname || "/";
+  window.location.href = `/api/auth/microsoft/start?callbackURL=${encodeURIComponent(callbackURL)}`;
 });
 
 navTabs.forEach((tab) => {
@@ -649,4 +682,6 @@ userTable.addEventListener("click", async (event) => {
   }
 });
 
+readAuthError();
+loadAuthConfig();
 loadCurrentUser();

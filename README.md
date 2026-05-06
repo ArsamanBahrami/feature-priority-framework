@@ -9,6 +9,7 @@ This is a lightweight internal app for submitting, scoring, ranking, and managin
 - automatically calculates a priority score
 - includes status management and simple filters
 - includes login, role-based access, and admin-managed team accounts
+- supports optional Microsoft SSO via Microsoft Entra ID
 - serves a plain web UI that the team can access on your internal network
 
 ## Run it locally
@@ -26,6 +27,7 @@ If you do not set `APP_ADMIN_PASSWORD` on the first run, the app will generate a
 ## Files
 
 - `app.py`: HTTP server, API, SQLite setup, auth, sessions
+- `app.py`: HTTP server, API, SQLite/Postgres setup, auth, sessions, Microsoft SSO
 - `index.html`: app UI
 - `styles.css`: visual design
 - `script.js`: frontend behavior
@@ -74,3 +76,38 @@ python app.py
 ```
 
 The included `render.yaml` also provides a simple starting point if you want to deploy from a repo.
+
+## Microsoft SSO
+
+This app can use Microsoft Entra ID for sign-in while keeping the rest of the app unchanged.
+
+### Render environment variables
+
+- `MICROSOFT_CLIENT_ID`
+- `MICROSOFT_CLIENT_SECRET`
+- `MICROSOFT_TENANT_ID`
+- `MICROSOFT_ALLOWED_DOMAINS`
+- `MICROSOFT_AUTO_PROVISION`
+- `MICROSOFT_DEFAULT_ROLE`
+- Optional: `MICROSOFT_REDIRECT_URI`
+
+### Recommended values
+
+- `MICROSOFT_TENANT_ID`: your Entra tenant ID or `organizations`
+- `MICROSOFT_ALLOWED_DOMAINS`: your company domain, for example `example.com`
+- `MICROSOFT_AUTO_PROVISION`: `true`
+- `MICROSOFT_DEFAULT_ROLE`: `viewer`
+
+### Microsoft Entra app registration
+
+Create a Web app registration and add this redirect URI:
+
+```text
+https://your-render-app.onrender.com/api/auth/callback/microsoft
+```
+
+For local development, you can use:
+
+```text
+http://localhost:8000/api/auth/callback/microsoft
+```

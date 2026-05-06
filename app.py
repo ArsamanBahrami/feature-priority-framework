@@ -4,11 +4,13 @@ import json
 import os
 import secrets
 import sqlite3
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import datetime, timedelta, timezone
 from http import cookies
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import Request, urlopen
 
 try:
     import psycopg
@@ -17,15 +19,42 @@ except ImportError:
     psycopg = None
     dict_row = None
 
+try:
+    import jwt
+    from jwt import PyJWKClient
+except ImportError:
+    jwt = None
+    PyJWKClient = None
+
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "feature_priority.db"
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 SESSION_COOKIE = "feature_priority_session"
+OIDC_STATE_COOKIE = "feature_priority_oidc_state"
 SESSION_TTL_DAYS = 14
 HOST = os.environ.get("APP_HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT") or os.environ.get("APP_PORT", "8000"))
 SECRET_PATH = BASE_DIR / ".app_secret"
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
+MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "").strip()
+MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "").strip()
+MICROSOFT_TENANT_ID = os.environ.get("MICROSOFT_TENANT_ID", "organizations").strip()
+MICROSOFT_AUTHORITY = os.environ.get(
+    "MICROSOFT_AUTHORITY", "https://login.microsoftonline.com"
+).rstrip("/")
+MICROSOFT_REDIRECT_URI = os.environ.get("MICROSOFT_REDIRECT_URI", "").strip()
+MICROSOFT_ALLOWED_DOMAINS = {
+    domain.strip().lower()
+    for domain in os.environ.get("MICROSOFT_ALLOWED_DOMAINS", "").split(",")
+    if domain.strip()
+}
+MICROSOFT_AUTO_PROVISION = os.environ.get("MICROSOFT_AUTO_PROVISION", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+MICROSOFT_DEFAULT_ROLE = os.environ.get("MICROSOFT_DEFAULT_ROLE", "viewer").strip().lower()
+MICROSOFT_OIDC_SCOPE = "openid profile email"
 
 SQLITE_FEATURE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS features (
@@ -166,6 +195,8 @@ SEED_FEATURES = [
 
 ALLOWED_ROLES = {"admin", "editor", "viewer"}
 ROLE_EDITORS = {"admin", "editor"}
+MICROSOFT_METADATA = None
+MICROSOFT_JWKS_CLIENT = None
 
 
 def utc_now():
@@ -190,6 +221,10 @@ def get_secret_key():
 
 
 APP_SECRET = get_secret_key()
+
+
+def microsoft_enabled():
+    return bool(MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET)
 
 
 def score_feature(feature):
@@ -227,6 +262,85 @@ def db_bool(value):
     if is_postgres():
         return bool(value)
     return 1 if value else 0
+
+
+def encode_state_payload(payload):
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return urlsafe_b64encode(raw).decode("utf-8")
+
+
+def decode_state_payload(value):
+    padding = "=" * (-len(value) % 4)
+    raw = urlsafe_b64decode((value + padding).encode("utf-8"))
+    return json.loads(raw.decode("utf-8"))
+
+
+def http_json(url, method="GET", data=None, headers=None):
+    body = None
+    request_headers = headers.copy() if headers else {}
+    if data is not None:
+        body = json.dumps(data).encode("utf-8")
+        request_headers["Content-Type"] = "application/json"
+    request = Request(url, data=body, headers=request_headers, method=method)
+    with urlopen(request) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def http_form(url, data):
+    encoded = urlencode(data).encode("utf-8")
+    request = Request(
+        url,
+        data=encoded,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urlopen(request) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def get_microsoft_metadata():
+    global MICROSOFT_METADATA, MICROSOFT_JWKS_CLIENT
+    if MICROSOFT_METADATA is None:
+        metadata_url = (
+            f"{MICROSOFT_AUTHORITY}/{MICROSOFT_TENANT_ID}/v2.0/.well-known/openid-configuration"
+        )
+        MICROSOFT_METADATA = http_json(metadata_url)
+        if PyJWKClient is None:
+            raise RuntimeError("PyJWT is required for Microsoft SSO.")
+        MICROSOFT_JWKS_CLIENT = PyJWKClient(MICROSOFT_METADATA["jwks_uri"])
+    return MICROSOFT_METADATA
+
+
+def validate_microsoft_token(id_token, expected_nonce):
+    metadata = get_microsoft_metadata()
+    signing_key = MICROSOFT_JWKS_CLIENT.get_signing_key_from_jwt(id_token)
+    payload = jwt.decode(
+        id_token,
+        signing_key.key,
+        algorithms=["RS256"],
+        audience=MICROSOFT_CLIENT_ID,
+        issuer=metadata["issuer"],
+        options={"require": ["exp", "iat", "iss", "aud", "nonce"]},
+    )
+
+    if payload.get("nonce") != expected_nonce:
+        raise ValueError("Invalid Microsoft sign-in nonce.")
+    return payload
+
+
+def get_email_from_claims(claims):
+    for key in ["preferred_username", "email", "upn"]:
+        value = str(claims.get(key, "")).strip().lower()
+        if value and "@" in value:
+            return value
+    return ""
+
+
+def domain_allowed(email):
+    if not MICROSOFT_ALLOWED_DOMAINS:
+        return True
+    domain = email.split("@", 1)[-1].lower()
+    return domain in MICROSOFT_ALLOWED_DOMAINS
 
 
 def score_order_sql():
@@ -439,6 +553,29 @@ def get_user_by_id(user_id):
             (user_id,),
         )
     return row
+
+
+def get_or_create_sso_user(email, name):
+    existing = get_user_by_email(email)
+    if existing:
+        return normalize_user(existing)
+
+    if not MICROSOFT_AUTO_PROVISION:
+        raise ValueError("This Microsoft account is not provisioned for access.")
+
+    if MICROSOFT_DEFAULT_ROLE not in ALLOWED_ROLES:
+        raise ValueError("MICROSOFT_DEFAULT_ROLE must be admin, editor, or viewer.")
+
+    random_password = secrets.token_urlsafe(24)
+    created = create_user(
+        {
+            "name": name or email.split("@", 1)[0],
+            "email": email,
+            "role": MICROSOFT_DEFAULT_ROLE,
+            "password": random_password,
+        }
+    )
+    return created
 
 
 def validate_feature_payload(payload):
@@ -698,7 +835,9 @@ class FeaturePriorityHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         if headers:
-            for key, value in headers.items():
+            if isinstance(headers, dict):
+                headers = list(headers.items())
+            for key, value in headers:
                 self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
@@ -710,6 +849,13 @@ class FeaturePriorityHandler(SimpleHTTPRequestHandler):
         jar[SESSION_COOKIE]["max-age"] = 0
         return jar.output(header="").strip()
 
+    def clear_oidc_state_cookie(self):
+        jar = cookies.SimpleCookie()
+        jar[OIDC_STATE_COOKIE] = ""
+        jar[OIDC_STATE_COOKIE]["path"] = "/"
+        jar[OIDC_STATE_COOKIE]["max-age"] = 0
+        return jar.output(header="").strip()
+
     def set_session_cookie(self, token):
         jar = cookies.SimpleCookie()
         jar[SESSION_COOKIE] = token
@@ -719,6 +865,17 @@ class FeaturePriorityHandler(SimpleHTTPRequestHandler):
         jar[SESSION_COOKIE]["max-age"] = SESSION_TTL_DAYS * 24 * 60 * 60
         if COOKIE_SECURE or self.headers.get("X-Forwarded-Proto", "").lower() == "https":
             jar[SESSION_COOKIE]["secure"] = True
+        return jar.output(header="").strip()
+
+    def set_oidc_state_cookie(self, payload):
+        jar = cookies.SimpleCookie()
+        jar[OIDC_STATE_COOKIE] = encode_state_payload(payload)
+        jar[OIDC_STATE_COOKIE]["path"] = "/"
+        jar[OIDC_STATE_COOKIE]["httponly"] = True
+        jar[OIDC_STATE_COOKIE]["samesite"] = "Lax"
+        jar[OIDC_STATE_COOKIE]["max-age"] = 15 * 60
+        if COOKIE_SECURE or self.headers.get("X-Forwarded-Proto", "").lower() == "https":
+            jar[OIDC_STATE_COOKIE]["secure"] = True
         return jar.output(header="").strip()
 
     def parse_body(self):
@@ -741,6 +898,40 @@ class FeaturePriorityHandler(SimpleHTTPRequestHandler):
     def current_user(self):
         return get_current_user_from_token(self.read_session_token())
 
+    def get_request_origin(self):
+        proto = self.headers.get("X-Forwarded-Proto", "http")
+        host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host", "")
+        return f"{proto}://{host}"
+
+    def get_microsoft_redirect_uri(self):
+        if MICROSOFT_REDIRECT_URI:
+            return MICROSOFT_REDIRECT_URI
+        return f"{self.get_request_origin()}/api/auth/callback/microsoft"
+
+    def read_oidc_state_cookie(self):
+        header = self.headers.get("Cookie")
+        if not header:
+            return None
+        jar = cookies.SimpleCookie()
+        jar.load(header)
+        morsel = jar.get(OIDC_STATE_COOKIE)
+        if not morsel:
+            return None
+        try:
+            return decode_state_payload(morsel.value)
+        except Exception:
+            return None
+
+    def redirect(self, location, headers=None):
+        self.send_response(302)
+        self.send_header("Location", location)
+        if headers:
+            if isinstance(headers, dict):
+                headers = list(headers.items())
+            for key, value in headers:
+                self.send_header(key, value)
+        self.end_headers()
+
     def require_auth(self):
         user = self.current_user()
         if not user:
@@ -759,6 +950,98 @@ class FeaturePriorityHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
+
+        if parsed.path == "/api/auth/config":
+            self.send_json({"microsoftEnabled": microsoft_enabled()})
+            return
+
+        if parsed.path == "/api/auth/microsoft/start":
+            if not microsoft_enabled():
+                self.send_json({"error": "Microsoft SSO is not configured."}, 400)
+                return
+
+            callback_url = query.get("callbackURL", ["/"])[0]
+            state = secrets.token_urlsafe(24)
+            nonce = secrets.token_urlsafe(24)
+            payload = {"state": state, "nonce": nonce, "callbackURL": callback_url}
+            metadata = get_microsoft_metadata()
+            authorize_url = metadata["authorization_endpoint"] + "?" + urlencode(
+                {
+                    "client_id": MICROSOFT_CLIENT_ID,
+                    "response_type": "code",
+                    "redirect_uri": self.get_microsoft_redirect_uri(),
+                    "response_mode": "query",
+                    "scope": MICROSOFT_OIDC_SCOPE,
+                    "state": state,
+                    "nonce": nonce,
+                    "prompt": "select_account",
+                }
+            )
+            self.redirect(authorize_url, headers={"Set-Cookie": self.set_oidc_state_cookie(payload)})
+            return
+
+        if parsed.path == "/api/auth/callback/microsoft":
+            if not microsoft_enabled():
+                self.redirect("/")
+                return
+
+            cookie_state = self.read_oidc_state_cookie()
+            state = query.get("state", [""])[0]
+            code = query.get("code", [""])[0]
+            error = query.get("error", [""])[0]
+            callback_url = "/"
+
+            if cookie_state:
+                callback_url = cookie_state.get("callbackURL") or "/"
+
+            clear_cookie = self.clear_oidc_state_cookie()
+
+            if error:
+                self.redirect(f"/?authError={error}", headers={"Set-Cookie": clear_cookie})
+                return
+
+            if not cookie_state or cookie_state.get("state") != state or not code:
+                self.redirect("/?authError=invalid_state", headers={"Set-Cookie": clear_cookie})
+                return
+
+            metadata = get_microsoft_metadata()
+            token_response = http_form(
+                metadata["token_endpoint"],
+                {
+                    "client_id": MICROSOFT_CLIENT_ID,
+                    "client_secret": MICROSOFT_CLIENT_SECRET,
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": self.get_microsoft_redirect_uri(),
+                    "scope": MICROSOFT_OIDC_SCOPE,
+                },
+            )
+            claims = validate_microsoft_token(token_response["id_token"], cookie_state["nonce"])
+            email = get_email_from_claims(claims)
+            if not email:
+                self.redirect("/?authError=no_email", headers={"Set-Cookie": clear_cookie})
+                return
+
+            if not domain_allowed(email):
+                self.redirect("/?authError=domain_not_allowed", headers={"Set-Cookie": clear_cookie})
+                return
+
+            try:
+                user = get_or_create_sso_user(email, claims.get("name", ""))
+            except ValueError:
+                self.redirect("/?authError=not_provisioned", headers={"Set-Cookie": clear_cookie})
+                return
+
+            token = create_session(user["id"])
+            self.redirect(
+                callback_url,
+                headers=[
+                    ("Set-Cookie", self.clear_oidc_state_cookie()),
+                    ("Set-Cookie", self.set_session_cookie(token)),
+                ],
+            )
+            return
 
         if parsed.path == "/api/me":
             user = self.require_auth()

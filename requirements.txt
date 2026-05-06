@@ -1,1 +1,2 @@
 psycopg[binary]==3.2.12
+PyJWT[crypto]==2.10.1
