@@ -15,6 +15,39 @@
           <p class="lede">
             Sign in to submit, score, and manage feature priorities with your team.
           </p>
+
+          <section id="sso-panel" class="sso-panel hidden">
+            <div class="sso-header">
+              <div class="sso-badge" aria-hidden="true">
+                <svg viewBox="0 0 24 24" class="sso-icon">
+                  <path
+                    d="M8 6.5c1.9-2.6 4.7-4 7.6-4 4.4 0 7.9 3.4 7.9 7.6 0 4.3-3.4 7.7-7.9 7.7H9.9c-4 0-7.2-3.1-7.2-7 0-3.7 2.8-6.7 6.4-7.1.4-2.1 2.1-3.7 4.4-3.7 1.8 0 3.4 1 4.1 2.6"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.8"
+                  />
+                </svg>
+              </div>
+              <div>
+                <div class="sso-title">Single Sign-On</div>
+                <p class="sso-copy">
+                  Use your Microsoft work account for the most secure sign-in experience.
+                </p>
+              </div>
+            </div>
+            <button id="microsoft-login-button" class="microsoft-button hidden" type="button">
+              Sign in with Microsoft
+            </button>
+          </section>
+
+          <div id="login-feedback" class="feedback hidden"></div>
+
+          <div class="auth-divider">
+            <span>Or use email and password</span>
+          </div>
+
           <form id="login-form" class="form auth-form">
             <label>
               Email
@@ -31,10 +64,6 @@
             </label>
             <button type="submit">Sign In</button>
           </form>
-          <button id="microsoft-login-button" class="secondary hidden" type="button">
-            Sign in with Microsoft
-          </button>
-          <div id="login-feedback" class="feedback hidden"></div>
         </article>
       </section>
 

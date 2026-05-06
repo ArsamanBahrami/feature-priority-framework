@@ -20,6 +20,7 @@ const usersView = document.getElementById("users-view");
 const navTabs = document.querySelectorAll(".nav-tab");
 const loginForm = document.getElementById("login-form");
 const loginFeedback = document.getElementById("login-feedback");
+const ssoPanel = document.getElementById("sso-panel");
 const microsoftLoginButton = document.getElementById("microsoft-login-button");
 const logoutButton = document.getElementById("logout-button");
 const userName = document.getElementById("user-name");
@@ -464,8 +465,10 @@ function readAuthError() {
 async function loadAuthConfig() {
   try {
     const config = await api("/api/auth/config", { headers: {} });
+    ssoPanel.classList.toggle("hidden", !config.microsoftEnabled);
     microsoftLoginButton.classList.toggle("hidden", !config.microsoftEnabled);
   } catch {
+    ssoPanel.classList.add("hidden");
     microsoftLoginButton.classList.add("hidden");
   }
 }
