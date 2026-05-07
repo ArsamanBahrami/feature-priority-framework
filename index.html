@@ -164,6 +164,7 @@
                     <th>Status</th>
                     <th>Source</th>
                     <th>Area</th>
+                    <th>Scoring Team</th>
                     <th>Effort</th>
                     <th>Urgency</th>
                     <th>Quick Win</th>
@@ -356,6 +357,14 @@
               <input name="dependencyRisk" type="number" min="1" max="5" value="3" required />
             </label>
           </div>
+
+          <fieldset class="source-group">
+            <legend>Tag collaborators for scoring</legend>
+            <p class="fieldset-copy">
+              Choose the teammates you want to weigh in on this feature's factor scoring.
+            </p>
+            <div id="tagged-users-options" class="tag-options"></div>
+          </fieldset>
 
           <div class="triple-grid">
             <label>

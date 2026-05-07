@@ -549,6 +549,12 @@ legend {
   flex-wrap: wrap;
 }
 
+.tag-options {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .source-chip {
   display: inline-flex;
   align-items: center;
@@ -563,6 +569,33 @@ legend {
 .source-chip input {
   width: auto;
   margin: 0;
+}
+
+.user-chip {
+  align-items: center;
+  gap: 10px;
+}
+
+.user-chip span:first-of-type {
+  font-weight: 600;
+}
+
+.user-chip-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.fieldset-copy {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.field-empty-state {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
 .checkbox {

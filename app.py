@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS features (
     urgency_reason TEXT,
     notes TEXT,
     dependencies TEXT,
+    tagged_user_ids TEXT NOT NULL DEFAULT '[]',
     quick_win INTEGER NOT NULL DEFAULT 0,
     customer_impact INTEGER NOT NULL,
     strategic_fit INTEGER NOT NULL,
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS features (
     urgency_reason TEXT,
     notes TEXT,
     dependencies TEXT,
+    tagged_user_ids TEXT NOT NULL DEFAULT '[]',
     quick_win BOOLEAN NOT NULL DEFAULT FALSE,
     customer_impact INTEGER NOT NULL,
     strategic_fit INTEGER NOT NULL,
@@ -164,6 +166,7 @@ SEED_FEATURES = [
         "urgency_reason": "Support workarounds consume time each week.",
         "notes": "",
         "dependencies": "User settings refactor",
+        "tagged_user_ids": [],
         "quick_win": 0,
         "customer_impact": 4,
         "strategic_fit": 3,
@@ -183,6 +186,7 @@ SEED_FEATURES = [
         "urgency_reason": "This can create trust issues with customers.",
         "notes": "Needs validation with compliance.",
         "dependencies": "Rules engine review",
+        "tagged_user_ids": [],
         "quick_win": 0,
         "customer_impact": 5,
         "strategic_fit": 4,
@@ -255,6 +259,42 @@ def parse_request_sources(value):
 
 def serialize_request_sources(sources):
     cleaned = [str(item).strip() for item in sources if str(item).strip()]
+    return json.dumps(cleaned)
+
+
+def parse_tagged_user_ids(value):
+    if not value:
+        return []
+
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    tagged_ids = []
+    for item in parsed:
+        try:
+            tagged_ids.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return tagged_ids
+
+
+def serialize_tagged_user_ids(tagged_user_ids):
+    cleaned = []
+    seen = set()
+    for item in tagged_user_ids:
+        try:
+            normalized = int(item)
+        except (TypeError, ValueError):
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(normalized)
     return json.dumps(cleaned)
 
 
@@ -428,11 +468,11 @@ def seed_features_if_needed(conn):
             """
             INSERT INTO features (
                 title, problem_statement, request_source, product_area, status, team_owner,
-                submitted_by, urgency_reason, notes, dependencies, quick_win,
+                submitted_by, urgency_reason, notes, dependencies, tagged_user_ids, quick_win,
                 customer_impact, strategic_fit, urgency, confidence, effort, dependency_risk,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 feature["title"],
@@ -445,6 +485,7 @@ def seed_features_if_needed(conn):
                 feature["urgency_reason"],
                 feature["notes"],
                 feature["dependencies"],
+                serialize_tagged_user_ids(feature.get("tagged_user_ids", [])),
                 db_bool(feature["quick_win"]),
                 feature["customer_impact"],
                 feature["strategic_fit"],
@@ -487,14 +528,48 @@ def init_db():
         execute(conn, SQLITE_FEATURE_SCHEMA if not is_postgres() else POSTGRES_FEATURE_SCHEMA)
         execute(conn, SQLITE_USER_SCHEMA if not is_postgres() else POSTGRES_USER_SCHEMA)
         execute(conn, SQLITE_SESSION_SCHEMA if not is_postgres() else POSTGRES_SESSION_SCHEMA)
+        ensure_feature_columns(conn)
         seed_features_if_needed(conn)
         return seed_initial_admin(conn)
 
 
-def normalize_feature(row):
+def ensure_feature_columns(conn):
+    if is_postgres():
+        column = fetchone(
+            conn,
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'features' AND column_name = 'tagged_user_ids'
+            """,
+        )
+        if not column:
+            execute(
+                conn,
+                "ALTER TABLE features ADD COLUMN tagged_user_ids TEXT NOT NULL DEFAULT '[]'",
+            )
+        return
+
+    columns = fetchall(conn, "PRAGMA table_info(features)")
+    if not any(column["name"] == "tagged_user_ids" for column in columns):
+        execute(
+            conn,
+            "ALTER TABLE features ADD COLUMN tagged_user_ids TEXT NOT NULL DEFAULT '[]'",
+        )
+
+
+def normalize_feature(row, user_lookup=None):
     feature = dict(row)
     feature["quick_win"] = bool(feature["quick_win"])
     feature["request_sources"] = parse_request_sources(feature["request_source"])
+    feature["tagged_user_ids"] = parse_tagged_user_ids(feature.get("tagged_user_ids"))
+    feature["tagged_users"] = []
+    if user_lookup:
+        feature["tagged_users"] = [
+            user_lookup[user_id]
+            for user_id in feature["tagged_user_ids"]
+            if user_id in user_lookup
+        ]
     feature["priority_score"] = score_feature(feature)
     return feature
 
@@ -507,6 +582,7 @@ def normalize_user(row):
 
 
 def list_features():
+    user_lookup = list_user_lookup()
     with get_connection() as conn:
         rows = fetchall(
             conn,
@@ -521,13 +597,14 @@ def list_features():
               updated_at DESC
             """
         )
-    return [normalize_feature(row) for row in rows]
+    return [normalize_feature(row, user_lookup) for row in rows]
 
 
 def get_feature(feature_id):
+    user_lookup = list_user_lookup()
     with get_connection() as conn:
         row = fetchone(conn, "SELECT * FROM features WHERE id = ?", (feature_id,))
-    return normalize_feature(row) if row else None
+    return normalize_feature(row, user_lookup) if row else None
 
 
 def list_users():
@@ -535,6 +612,21 @@ def list_users():
         rows = fetchall(
             conn,
             "SELECT id, name, email, role, created_at FROM users ORDER BY created_at ASC"
+        )
+    return rows
+
+
+def list_user_lookup():
+    return {user["id"]: user for user in list_users()}
+
+
+def list_mentionable_users():
+    with get_connection() as conn:
+        rows = fetchall(
+            conn,
+            "SELECT id, name, email, role FROM users ORDER BY name COLLATE NOCASE ASC"
+            if not is_postgres()
+            else "SELECT id, name, email, role FROM users ORDER BY LOWER(name) ASC",
         )
     return rows
 
@@ -609,6 +701,26 @@ def validate_feature_payload(payload):
     for field in ["team_owner", "submitted_by", "urgency_reason", "notes", "dependencies"]:
         cleaned[field] = str(payload.get(field, "")).strip()
 
+    tagged_user_ids = payload.get("tagged_user_ids", [])
+    if tagged_user_ids is None:
+        tagged_user_ids = []
+    if not isinstance(tagged_user_ids, list):
+        raise ValueError("Tagged users must be a list.")
+
+    mentionable_users = list_user_lookup()
+    normalized_tagged_ids = []
+    for item in tagged_user_ids:
+        try:
+            user_id = int(item)
+        except (TypeError, ValueError):
+            raise ValueError("Tagged users must contain valid user ids.")
+        if user_id not in mentionable_users:
+            raise ValueError("One or more tagged users could not be found.")
+        normalized_tagged_ids.append(user_id)
+
+    cleaned["tagged_user_ids"] = normalized_tagged_ids
+    cleaned["tagged_user_ids_serialized"] = serialize_tagged_user_ids(normalized_tagged_ids)
+
     for field in [
         "customer_impact",
         "strategic_fit",
@@ -653,11 +765,11 @@ def create_feature(payload):
             """
             INSERT INTO features (
                 title, problem_statement, request_source, product_area, status, team_owner,
-                submitted_by, urgency_reason, notes, dependencies, quick_win,
+                submitted_by, urgency_reason, notes, dependencies, tagged_user_ids, quick_win,
                 customer_impact, strategic_fit, urgency, confidence, effort, dependency_risk,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
             """,
             (
@@ -671,6 +783,7 @@ def create_feature(payload):
                 cleaned["urgency_reason"],
                 cleaned["notes"],
                 cleaned["dependencies"],
+                cleaned["tagged_user_ids_serialized"],
                 cleaned["quick_win"],
                 cleaned["customer_impact"],
                 cleaned["strategic_fit"],
@@ -697,8 +810,8 @@ def update_feature(feature_id, payload):
             SET
                 title = ?, problem_statement = ?, request_source = ?, product_area = ?, status = ?,
                 team_owner = ?, submitted_by = ?, urgency_reason = ?, notes = ?, dependencies = ?,
-                quick_win = ?, customer_impact = ?, strategic_fit = ?, urgency = ?, confidence = ?,
-                effort = ?, dependency_risk = ?, updated_at = ?
+                tagged_user_ids = ?, quick_win = ?, customer_impact = ?, strategic_fit = ?,
+                urgency = ?, confidence = ?, effort = ?, dependency_risk = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -712,6 +825,7 @@ def update_feature(feature_id, payload):
                 cleaned["urgency_reason"],
                 cleaned["notes"],
                 cleaned["dependencies"],
+                cleaned["tagged_user_ids_serialized"],
                 cleaned["quick_win"],
                 cleaned["customer_impact"],
                 cleaned["strategic_fit"],
@@ -1053,6 +1167,12 @@ class FeaturePriorityHandler(SimpleHTTPRequestHandler):
             if not self.require_auth():
                 return
             self.send_json(list_features())
+            return
+
+        if parsed.path == "/api/mentionable-users":
+            if not self.require_auth():
+                return
+            self.send_json(list_mentionable_users())
             return
 
         if parsed.path == "/api/users":

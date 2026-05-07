@@ -4,6 +4,7 @@ const state = {
   currentDatabaseView: "all",
   features: [],
   users: [],
+  mentionableUsers: [],
   filters: {
     status: "",
     area: "",
@@ -42,6 +43,7 @@ const filterStatus = document.getElementById("filter-status");
 const filterArea = document.getElementById("filter-area");
 const filterSource = document.getElementById("filter-source");
 const filterQuickWin = document.getElementById("filter-quick-win");
+const taggedUsersOptions = document.getElementById("tagged-users-options");
 const userAdminPanel = document.getElementById("user-admin-panel");
 const userReadonlyPanel = document.getElementById("user-readonly-panel");
 const userForm = document.getElementById("user-form");
@@ -165,6 +167,42 @@ function selectedSources() {
   );
 }
 
+function renderTaggedUserOptions() {
+  if (!taggedUsersOptions) return;
+
+  if (!state.mentionableUsers.length) {
+    taggedUsersOptions.innerHTML = `
+      <p class="field-empty-state">No teammates are available to tag yet.</p>
+    `;
+    return;
+  }
+
+  taggedUsersOptions.innerHTML = state.mentionableUsers
+    .map(
+      (user) => `
+        <label class="source-chip user-chip">
+          <input type="checkbox" name="taggedUsers" value="${user.id}" />
+          <span>${escapeHtml(user.name)}</span>
+          <span class="user-chip-meta">${escapeHtml(user.email)}</span>
+        </label>
+      `
+    )
+    .join("");
+}
+
+function populateTaggedUsers(taggedUserIds) {
+  const selectedIds = new Set((taggedUserIds || []).map((id) => Number(id)));
+  featureForm.querySelectorAll('input[name="taggedUsers"]').forEach((input) => {
+    input.checked = selectedIds.has(Number(input.value));
+  });
+}
+
+function selectedTaggedUsers() {
+  return Array.from(featureForm.querySelectorAll('input[name="taggedUsers"]:checked')).map(
+    (input) => Number(input.value)
+  );
+}
+
 function getFilteredFeatures() {
   return state.features.filter((feature) => {
     if (state.currentDatabaseView === "quick-wins" && !feature.quick_win) return false;
@@ -278,7 +316,7 @@ function renderFeatureTable() {
   if (!filtered.length) {
     featureTable.innerHTML = `
       <tr>
-        <td colspan="11">No features match the current filters.</td>
+        <td colspan="12">No features match the current filters.</td>
       </tr>
     `;
     renderStats(filtered);
@@ -288,6 +326,7 @@ function renderFeatureTable() {
   featureTable.innerHTML = filtered
     .map((feature) => {
       const sources = getFeatureSources(feature);
+      const taggedUsers = Array.isArray(feature.tagged_users) ? feature.tagged_users : [];
       return `
         <tr>
           <td><div class="feature-title">${escapeHtml(feature.title)}</div></td>
@@ -299,6 +338,20 @@ function renderFeatureTable() {
             </div>
           </td>
           <td>${escapeHtml(feature.product_area)}</td>
+          <td>
+            ${
+              taggedUsers.length
+                ? `<div class="pill-row">
+                    ${taggedUsers
+                      .map(
+                        (user) =>
+                          `<span class="pill subtle-pill">${escapeHtml(user.name)}</span>`
+                      )
+                      .join("")}
+                  </div>`
+                : `<span class="feature-meta">No tags</span>`
+            }
+          </td>
           <td>${feature.effort}/5</td>
           <td>${feature.urgency}/5</td>
           <td>${feature.quick_win ? "Yes" : "No"}</td>
@@ -365,6 +418,7 @@ function populateFeatureForm(feature) {
   featureForm.elements.quickWin.checked = Boolean(feature.quick_win);
   featureForm.elements.notes.value = feature.notes || "";
   populateSourceChecks(getFeatureSources(feature));
+  populateTaggedUsers(feature.tagged_user_ids || []);
 
   state.editingId = feature.id;
   formTitle.textContent = "Edit Feature";
@@ -404,6 +458,11 @@ async function loadUsers() {
   renderUsers();
 }
 
+async function loadMentionableUsers() {
+  state.mentionableUsers = await api("/api/mentionable-users", { headers: {} });
+  renderTaggedUserOptions();
+}
+
 async function loadCurrentUser() {
   try {
     state.currentUser = await api("/api/me", { headers: {} });
@@ -420,6 +479,16 @@ async function loadCurrentUser() {
   setEditingEnabled(canEdit());
   setAuthView(true);
   setActiveView("database");
+
+  try {
+    await loadMentionableUsers();
+  } catch (error) {
+    showMessage(
+      feedback,
+      error.message || "Logged in, but teammate tagging could not be loaded.",
+      true
+    );
+  }
 
   try {
     await loadFeatures();
@@ -548,6 +617,7 @@ featureForm.addEventListener("submit", async (event) => {
     dependency_risk: Number(data.get("dependencyRisk")),
     dependencies: data.get("dependencies"),
     urgency_reason: data.get("urgencyReason"),
+    tagged_user_ids: selectedTaggedUsers(),
     quick_win: data.get("quickWin") === "on",
     notes: data.get("notes"),
   };
